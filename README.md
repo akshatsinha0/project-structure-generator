@@ -18,9 +18,9 @@ Generate a detailed text file (`project-structure.md`) of your current workspace
 ## Installation
 
 1. **Install from the VS Code Marketplace:**  
-   [Link to Marketplace](https://marketplace.visualstudio.com/) *(replace with your extension’s link)*  
+   [Link to Marketplace](https://marketplace.visualstudio.com/items?itemName=akshatsinha0.project-structure-generator-pro)
 2. **Or install manually from `.vsix`:**  
-   - Download the `.vsix` file from the [Releases](https://github.com/your-repo/releases) page.  
+   - Download the `.vsix` file from the [Releases](https://github.com/akshatsinha0/project-structure-generator.git/releases) page.  
    - In VS Code, run `Extensions: Install from VSIX...` from the Command Palette.
 
 ## Usage
