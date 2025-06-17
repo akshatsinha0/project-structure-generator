@@ -4,7 +4,7 @@
   "description": "Generate files and folder structure of your project",
   "version": "0.0.3",
   "publisher": "akshatsinha0",
-  "icons": "E:/project-structure-generator/images/STRUCTURE.png",
+  "icon": "images/structure.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/akshatsinha0/project-structure-generator.git"
