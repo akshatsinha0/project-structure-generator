@@ -27,6 +27,7 @@
     ]
   },
   "scripts": {
+    "patch": "npm version patch -m \"Upgrade to %s\"",
     "vscode:prepublish": "npm run package",
     "compile": "webpack",
     "watch": "webpack --watch",
@@ -36,7 +37,7 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "patch": "npm version patch -m \"Upgrade to %s\""
+    
   },
   "devDependencies": {
     "@types/vscode": "^1.101.0",
