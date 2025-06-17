@@ -14,13 +14,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:project-structure-generator.generateStructure"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "project-structure-generator.helloWorld",
-        "title": "Hello World"
+        "command": "project-structure-generator.generateStructure",
+        "title": "Generate Project Structure"
       }
     ]
   },
