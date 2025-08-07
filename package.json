@@ -2,7 +2,7 @@
   "name": "project-structure-generator-pro",
   "displayName": "Project Structure Generator By A New Person",
   "description": "Generate files and folder structure of your project",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "publisher": "akshatsinha0",
   "icon": "images/STRUCTURE.png",
   "repository": {
@@ -15,9 +15,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:project-structure-generator.generateStructure"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [

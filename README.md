@@ -6,9 +6,11 @@ Generate a detailed text file (`project-structure.md`) of your current workspace
 
 ## Features
 
-- Instantly produces an ASCII tree listing all directories and files in your workspace, respecting `.gitignore` patterns and user-defined exclude filters[^1].
-- Outputs to a markdown file (`project-structure.md`) at the workspace root and automatically opens it in the editor[^2].
-- Provides a Command Palette entry ("Generate Project Structure") and Explorer context menu integration for folders[^3].
+- **Interactive Folder Exclusion**: When generating project structure, a popup window allows you to select which folders to exclude from the output
+- **Smart Pre-selection**: Common build and cache folders (node_modules, .git, .vscode, dist, build, out) are pre-selected for exclusion
+- **ASCII Tree Output**: Produces a clean ASCII tree listing of your workspace structure
+- **Markdown Export**: Outputs to a `project-structure.md` file at the workspace root and automatically opens it
+- **Command Palette Integration**: Access via "Generate Project Structure" command (Ctrl+Shift+P)
 
 ## Requirements
 
@@ -25,9 +27,12 @@ Generate a detailed text file (`project-structure.md`) of your current workspace
 
 ## Usage
 
-1. Open any workspace folder in VS Code.  
-2. Run **Generate Project Structure** from the Command Palette (`Ctrl+Shift+P`), or right-click a folder in the Explorer and select **Generate Project Structure**.  
-3. A new file, `project-structure.md`, will appear at the workspace root with the full ASCII tree of your project.
+1. Open any workspace folder in VS Code
+2. Run **Generate Project Structure** from the Command Palette (`Ctrl+Shift+P`)
+3. **NEW**: A popup window will appear showing all folders in your project
+4. Select which folders you want to exclude from the generated structure (common folders like `node_modules`, `.git`, etc. are pre-selected)
+5. Click to confirm your selection
+6. A new file, `project-structure.md`, will appear at the workspace root with the filtered ASCII tree of your project
 
 ### Example Output
 
