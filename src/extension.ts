@@ -162,7 +162,7 @@ async function buildDirectoryTree(
             
             if (type === vscode.FileType.Directory) {
                 return !excludedFolders.some(excluded => 
-                    excluded.startsWith(fullPath + '/') || fullPath.startsWith(excluded + '/')
+                    excluded.startsWith(fullPath + '/')
                 );
             }
             
