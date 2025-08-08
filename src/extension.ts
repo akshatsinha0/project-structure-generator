@@ -23,7 +23,9 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
+                console.log('DEBUG: Starting folder scan...');
                 const allFolders = await getAllFolders(workspaceFolder);
+                console.log('DEBUG: Found folders:', allFolders.map(f => f.folderPath));
                 
                 if (allFolders.length === 0) {
                     const structure = await generateProjectStructure(workspaceFolder, ['node_modules', '.git', '.vscode']);
@@ -33,6 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
                 
                 const selectedExclusions = await showFolderSelectionDialog(allFolders);
+                console.log('DEBUG: Selected exclusions:', selectedExclusions);
                 
                 if (selectedExclusions === undefined) {
                     vscode.window.showInformationMessage('Operation cancelled by user.');
@@ -136,6 +139,7 @@ async function generateProjectStructure(folderUri: vscode.Uri, excludedFolders: 
     structure.push('');
     structure.push('```');
     
+    console.log('DEBUG: Building tree with exclusions:', excludedFolders);
     await buildDirectoryTree(folderUri, '', structure, 0, excludedFolders);
     
     structure.push('```');
@@ -154,35 +158,45 @@ async function buildDirectoryTree(
     
     try {
         const entries = await vscode.workspace.fs.readDirectory(uri);
+        console.log(`DEBUG: Processing directory ${currentPath || 'ROOT'} with ${entries.length} entries`);
         
-        const filteredEntries = entries.filter(([name, type]) => {
+        const validEntries: Array<[string, vscode.FileType]> = [];
+        
+        for (const [name, fileType] of entries) {
             const fullPath = currentPath ? `${currentPath}/${name}` : name;
             
-            if (excludedFolders.includes(fullPath)) return false;
-            
-            if (type === vscode.FileType.Directory) {
-                return !excludedFolders.some(excluded => 
-                    excluded.startsWith(fullPath + '/')
-                );
+            // Skip system files
+            if (fileType === vscode.FileType.File) {
+                const fileExclusions = ['.DS_Store', 'Thumbs.db', '.env'];
+                if (fileExclusions.includes(name) || /\.log$/.test(name)) {
+                    continue;
+                }
             }
             
-            const fileExclusions = ['.DS_Store', 'Thumbs.db', '.env'];
-            if (fileExclusions.includes(name)) return false;
+            // CRITICAL: Only skip if this EXACT path is excluded
+            if (excludedFolders.includes(fullPath)) {
+                console.log(`DEBUG: EXCLUDING ${fullPath}`);
+                continue;
+            } else {
+                console.log(`DEBUG: INCLUDING ${fullPath}`);
+            }
             
-            if (/\.log$/.test(name)) return false;
-            
-            return true;
-        });
+            validEntries.push([name, fileType]);
+        }
         
-        filteredEntries.sort(([nameA, typeA], [nameB, typeB]) => {
+        // Sort entries
+        validEntries.sort(([nameA, typeA], [nameB, typeB]) => {
             if (typeA === vscode.FileType.Directory && typeB === vscode.FileType.File) return -1;
             if (typeA === vscode.FileType.File && typeB === vscode.FileType.Directory) return 1;
             return nameA.localeCompare(nameB);
         });
         
-        for (let i = 0; i < filteredEntries.length; i++) {
-            const [name, fileType] = filteredEntries[i];
-            const isLast = i === filteredEntries.length - 1;
+        console.log(`DEBUG: After filtering, ${validEntries.length} entries remain`);
+        
+        // Process entries
+        for (let i = 0; i < validEntries.length; i++) {
+            const [name, fileType] = validEntries[i];
+            const isLast = i === validEntries.length - 1;
             const currentPrefix = isLast ? '└── ' : '├── ';
             const nextPrefix = isLast ? '    ' : '│   ';
             const fullPath = currentPath ? `${currentPath}/${name}` : name;
@@ -196,6 +210,7 @@ async function buildDirectoryTree(
             }
         }
     } catch (error) {
+        console.error(`DEBUG: Error in directory ${currentPath}:`, error);
         structure.push(`${prefix}├── [Error reading directory: ${error}]`);
     }
 }
