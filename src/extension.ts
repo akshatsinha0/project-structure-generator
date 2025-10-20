@@ -1,168 +1,210 @@
 import * as vscode from 'vscode';
 
-interface FolderItem extends vscode.QuickPickItem {
-    folderPath: string;
-    isDirectory: boolean;
+// Tree QuickPick item for files/folders with expand/collapse
+interface NodeItem extends vscode.QuickPickItem {
+    path:string; // relative to workspace root
+    isDir:boolean;
+    depth:number; // 0=root
+    expanded?:boolean;
+    parent?:string|null; // parent path
+    // VS Code allows item buttons; keep loose typing for compatibility
+    buttons?: readonly vscode.QuickInputButton[];
 }
 
+const DEFAULT_EXCLUDES=['node_modules','.git','.vscode','dist','build','out','.nyc_output','coverage'];
+
 export function activate(context: vscode.ExtensionContext) {
-    console.log('🚀 Project Structure Generator ACTIVATED!');
-    const disposable = vscode.commands.registerCommand('project-structure-generator.generateStructure', async (uri?: vscode.Uri) => {
-        try {
-            let workspaceFolder: vscode.Uri;
-            if (uri) {
-                workspaceFolder = uri;
-            } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
-            } else {
+    const disposable=vscode.commands.registerCommand('project-structure-generator.generateStructure',async(uri?:vscode.Uri)=>{
+        try{
+            let workspaceFolder:vscode.Uri;
+            if(uri){workspaceFolder=uri;}else if(vscode.workspace.workspaceFolders&&vscode.workspace.workspaceFolders.length>0){
+                workspaceFolder=vscode.workspace.workspaceFolders[0].uri;
+            }else{
                 vscode.window.showErrorMessage('No workspace folder found. Please open a folder first.');
                 return;
             }
-            const allFolders = await getAllFolders(workspaceFolder);
-            if (allFolders.length === 0) {
-                const structure = await generateProjectStructure(workspaceFolder, ['node_modules', '.git', '.vscode']);
-                await createStructureFile(workspaceFolder, structure);
-                vscode.window.showInformationMessage('Project structure generated with default exclusions!');
-                return;
-            }
-            const selectedExclusions = await showFolderSelectionDialog(allFolders);
-            if (selectedExclusions === undefined) {
-                vscode.window.showInformationMessage('Operation cancelled by user.');
-                return;
-            }
-            const structure = await generateProjectStructure(workspaceFolder, selectedExclusions);
-            await createStructureFile(workspaceFolder, structure);
+            const selectedExclusions=await showExcludeSelectionDialog(workspaceFolder);
+            if(selectedExclusions===undefined)return; // canceled
+            const structure=await generateProjectStructure(workspaceFolder,selectedExclusions);
+            await createStructureFile(workspaceFolder,structure);
             vscode.window.showInformationMessage('Project structure generated successfully!');
-        } catch (error) {
-            console.error('Extension Error:', error);
+        }catch(error){
+            console.error('Extension Error:',error);
             vscode.window.showErrorMessage(`Error: ${error}`);
         }
     });
     context.subscriptions.push(disposable);
 }
 
-async function getAllFolders(folderUri: vscode.Uri, relativePath: string = '', depth: number = 0): Promise<FolderItem[]> {
-    const folders: FolderItem[] = [];
-    if (depth > 2) return folders;
-    try {
-        const entries = await vscode.workspace.fs.readDirectory(folderUri);
-        for (const [name, fileType] of entries) {
-            if (fileType === vscode.FileType.Directory) {
-                const currentPath = relativePath ? `${relativePath}/${name}` : name;
-                folders.push({
-                    label: `📁 ${currentPath}`,
-                    description: `Folder: ${currentPath}`,
-                    folderPath: currentPath,
-                    isDirectory: true
-                });
-                if (depth < 1 && !name.startsWith('.') && name !== 'node_modules') {
-                    const fullPath = vscode.Uri.joinPath(folderUri, name);
-                    const subFolders = await getAllFolders(fullPath, currentPath, depth + 1);
-                    folders.push(...subFolders);
-                }
+async function showExcludeSelectionDialog(root:vscode.Uri):Promise<string[]|undefined>{
+    const expandBtn: vscode.QuickInputButton={iconPath:new vscode.ThemeIcon('chevron-right'),tooltip:'Expand'};
+    const collapseBtn: vscode.QuickInputButton={iconPath:new vscode.ThemeIcon('chevron-down'),tooltip:'Collapse'};
+
+    const quickPick=vscode.window.createQuickPick<NodeItem>();
+    quickPick.canSelectMany=true;
+    quickPick.title='Select folders/files to exclude from project structure';
+    quickPick.placeholder='Choose items to exclude (pre-selected: common build/cache folders)';
+
+    const selectedPaths=new Set<string>();
+
+    // Helpers
+    const nameOf=(p:string)=>p.split('/').pop()||p;
+    const mkLabel=(item:NodeItem)=>`${'  '.repeat(item.depth)}${item.isDir?'📁':'📄'} ${nameOf(item.path)}`;
+
+    async function readChildren(parentPath:string|null):Promise<NodeItem[]>{
+        const baseUri=parentPath?vscode.Uri.joinPath(root,...parentPath.split('/')):root;
+        const depth=parentPath?parentPath.split('/').length:0;
+        const entries=await vscode.workspace.fs.readDirectory(baseUri);
+        const items:NodeItem[]=[];
+        for(const [name,type]of entries){
+            // skip generated output file
+            if(type===vscode.FileType.File&&name==='project-structure.md')continue;
+            const rel=parentPath?`${parentPath}/${name}`:name;
+            const isDir=type===vscode.FileType.Directory;
+            const node:NodeItem={
+                label:'', // set below
+                description:isDir?undefined:rel,
+                path:rel,
+                isDir,
+                depth,
+                parent:parentPath,
+                buttons:isDir?[expandBtn]:undefined
+            } as any;
+            node.label=mkLabel(node);
+            items.push(node);
+        }
+        // sort: directories first then by name
+        items.sort((a,b)=>a.isDir===b.isDir?a.path.localeCompare(b.path):a.isDir?-1:1);
+        // preselect defaults present at this level
+        for(const it of items){
+            if(DEFAULT_EXCLUDES.some(x=>it.path===x||it.path.startsWith(x+'/')))selectedPaths.add(it.path);
+        }
+        return items;
+    }
+
+    function refreshSelection(){
+        quickPick.selectedItems=quickPick.items.filter(i=>selectedPaths.has(i.path));
+    }
+
+    function removeDescendants(parentPath:string){
+        const toRemove:string[]=[];
+        for(const it of quickPick.items){
+            if(it.parent&& (it.parent===parentPath||it.parent.startsWith(parentPath+'/'))){
+                toRemove.push(it.path);
             }
         }
-    } catch (error) {
-        console.error(`Error reading directory ${folderUri.fsPath}:`, error);
+        if(toRemove.length===0)return;
+        quickPick.items=quickPick.items.filter(i=>!toRemove.includes(i.path));
     }
-    return folders.sort((a, b) => a.folderPath.localeCompare(b.folderPath));
-}
 
-async function showFolderSelectionDialog(folders: FolderItem[]): Promise<string[] | undefined> {
-    const defaultExclusions = ['node_modules', '.git', '.vscode', 'dist', 'build', 'out', '.nyc_output', 'coverage'];
-    const preSelectedItems = folders.filter(folder => defaultExclusions.some(exclusion => folder.folderPath === exclusion || folder.folderPath.startsWith(exclusion + '/')));
-    const quickPick = vscode.window.createQuickPick<FolderItem>();
-    quickPick.items = folders;
-    quickPick.selectedItems = preSelectedItems;
-    quickPick.canSelectMany = true;
-    quickPick.title = 'Select folders to exclude from project structure';
-    quickPick.placeholder = 'Choose folders to exclude (pre-selected: common build/cache folders)';
-    return new Promise<string[] | undefined>((resolve) => {
-        let isAccepted = false;
-        quickPick.onDidAccept(() => {
-            isAccepted = true;
-            const selectedFolders = quickPick.selectedItems.map(item => item.folderPath);
+    quickPick.items=await readChildren(null);
+    refreshSelection();
+
+    quickPick.onDidChangeSelection(items=>{
+        selectedPaths.clear();
+        for(const it of items)selectedPaths.add(it.path);
+    });
+
+    quickPick.onDidTriggerItemButton(async e=>{
+        const item=e.item as NodeItem;
+        const isExpanded=item.expanded===true;
+        if(isExpanded){
+            // collapse
+            removeDescendants(item.path);
+            item.expanded=false;
+            item.buttons=[expandBtn];
+            quickPick.items=[...quickPick.items];
+            refreshSelection();
+            return;
+        }
+        // expand
+        const children=await readChildren(item.path);
+        // insert right after the parent
+        const items=quickPick.items.slice();
+        const idx=items.findIndex(i=>i.path===item.path);
+        items.splice(idx+1,0,...children);
+        item.expanded=true;
+        item.buttons=[collapseBtn];
+        quickPick.items=items;
+        refreshSelection();
+    });
+
+    return await new Promise<string[]|undefined>(resolve=>{
+        let accepted=false;
+        quickPick.onDidAccept(()=>{
+            accepted=true;
+            const selections=quickPick.selectedItems.map(i=>i.path);
             quickPick.dispose();
-            resolve(selectedFolders);
+            resolve(selections);
         });
-        quickPick.onDidHide(() => {
-            if (!isAccepted) {
-                quickPick.dispose();
-                resolve(undefined);
-            }
-        });
+        quickPick.onDidHide(()=>{if(!accepted){quickPick.dispose();resolve(undefined);}});
         quickPick.show();
     });
 }
 
-async function generateProjectStructure(folderUri: vscode.Uri, excludedFolders: string[] = []): Promise<string> {
-    const structure: string[] = [];
+async function generateProjectStructure(folderUri:vscode.Uri,excludedPaths:string[]=[]):Promise<string>{
+    const structure:string[]=[];
     structure.push('# Project Structure');
     structure.push('');
     structure.push(`Generated on: ${new Date().toLocaleString()}`);
     structure.push(`Root: ${folderUri.fsPath}`);
-    if (excludedFolders.length > 0) {
-        structure.push(`Excluded folders: ${excludedFolders.join(', ')}`);
-    }
+    if(excludedPaths.length>0)structure.push(`Excluded: ${excludedPaths.join(', ')}`);
     structure.push('');
     structure.push('```');
-    await buildDirectoryTree(folderUri, '', structure, 0, excludedFolders);
+    await buildDirectoryTree(folderUri,'',structure,0,new Set(excludedPaths));
     structure.push('```');
     return structure.join('\n');
 }
 
-async function buildDirectoryTree(uri: vscode.Uri, prefix: string, structure: string[], depth: number, excludedFolders: string[] = [], currentPath: string = ''): Promise<void> {
-    if (depth > 10) return;
-    try {
-        const entries = await vscode.workspace.fs.readDirectory(uri);
-        const validEntries: Array<[string, vscode.FileType]> = [];
-        for (const [name, fileType] of entries) {
-            const fullPath = currentPath ? `${currentPath}/${name}` : name;
-            if (fileType === vscode.FileType.File) {
-                const fileExclusions = ['.DS_Store', 'Thumbs.db', '.env'];
-                if (fileExclusions.includes(name) || /\.log$/.test(name)) {
-                    continue;
-                }
+function isExcluded(fullPath:string,excluded:Set<string>):boolean{
+    for(const ex of excluded){
+        if(fullPath===ex||fullPath.startsWith(ex+'/'))return true;
+    }
+    return false;
+}
+
+async function buildDirectoryTree(uri:vscode.Uri,prefix:string,structure:string[],depth:number,excluded:Set<string>,currentPath:string=''):Promise<void>{
+    if(depth>50)return;
+    try{
+        const entries=await vscode.workspace.fs.readDirectory(uri);
+        const valid:Array<[string,vscode.FileType]>=[];
+        for(const [name,type] of entries){
+            const full=currentPath?`${currentPath}/${name}`:name;
+            if(type===vscode.FileType.File){
+                const fileExclusions=['.DS_Store','Thumbs.db','.env','project-structure.md'];
+                if(fileExclusions.includes(name)||/\.log$/.test(name))continue;
             }
-            if (excludedFolders.includes(fullPath)) {
-                continue;
-            }
-            validEntries.push([name, fileType]);
+            if(isExcluded(full,excluded))continue;
+            valid.push([name,type]);
         }
-        validEntries.sort(([nameA, typeA], [nameB, typeB]) => {
-            if (typeA === vscode.FileType.Directory && typeB === vscode.FileType.File) return -1;
-            if (typeA === vscode.FileType.File && typeB === vscode.FileType.Directory) return 1;
-            return nameA.localeCompare(nameB);
-        });
-        for (let i = 0; i < validEntries.length; i++) {
-            const [name, fileType] = validEntries[i];
-            const isLast = i === validEntries.length - 1;
-            const currentPrefix = isLast ? '└── ' : '├── ';
-            const nextPrefix = isLast ? '    ' : '│   ';
-            const fullPath = currentPath ? `${currentPath}/${name}` : name;
-            if (fileType === vscode.FileType.Directory) {
+        valid.sort(([a,ta],[b,tb])=>ta===tb?a.localeCompare(b):ta===vscode.FileType.Directory?-1:1);
+        for(let i=0;i<valid.length;i++){
+            const [name,type]=valid[i];
+            const isLast=i===valid.length-1;
+            const currentPrefix=isLast?'└── ':'├── ';
+            const nextPrefix=isLast?'    ':'│   ';
+            const full=currentPath?`${currentPath}/${name}`:name;
+            if(type===vscode.FileType.Directory){
                 structure.push(`${prefix}${currentPrefix}${name}/`);
-                const childUri = vscode.Uri.joinPath(uri, name);
-                await buildDirectoryTree(childUri, prefix + nextPrefix, structure, depth + 1, excludedFolders, fullPath);
-            } else {
+                await buildDirectoryTree(vscode.Uri.joinPath(uri,name),prefix+nextPrefix,structure,depth+1,excluded,full);
+            }else{
                 structure.push(`${prefix}${currentPrefix}${name}`);
             }
         }
-    } catch (error) {
+    }catch(error){
         structure.push(`${prefix}├── [Error reading directory: ${error}]`);
     }
 }
 
-async function createStructureFile(workspaceUri: vscode.Uri, content: string): Promise<void> {
-    const fileName = 'project-structure.md';
-    const fileUri = vscode.Uri.joinPath(workspaceUri, fileName);
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    await vscode.workspace.fs.writeFile(fileUri, data);
-    const document = await vscode.workspace.openTextDocument(fileUri);
+async function createStructureFile(workspaceUri:vscode.Uri,content:string):Promise<void>{
+    const fileName='project-structure.md';
+    const fileUri=vscode.Uri.joinPath(workspaceUri,fileName);
+    const encoder=new TextEncoder();
+    await vscode.workspace.fs.writeFile(fileUri,encoder.encode(content));
+    const document=await vscode.workspace.openTextDocument(fileUri);
     await vscode.window.showTextDocument(document);
 }
 
-export function deactivate() {
-    console.log('Project Structure Generator deactivated');
+export function deactivate(){
+    // no-op
 }
