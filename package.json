@@ -15,7 +15,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:project-structure-generator.generateStructure"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
